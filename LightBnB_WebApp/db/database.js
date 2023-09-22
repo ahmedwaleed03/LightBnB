@@ -102,15 +102,65 @@ const getAllReservations = function (guest_id, limit = 10) {
  * @return {Promise<[{}]>}  A promise to the properties.
  */
 const getAllProperties = function (options, limit = 10) {
+  const queryParams = [];
+  // start of query
+  let queryString = `
+  SELECT properties.*, avg(property_reviews.rating) as average_rating
+  FROM properties
+  JOIN property_reviews ON properties.id = property_id
+  `;
+
+  // if there is an owner id
+  if (options.owner_id) {
+    queryParams.push(options.owner_id);
+    queryString += `WHERE owner_id = $${queryParams.length} `;
+  }
+
+  // if there is a city
+  if (options.city) {
+    queryParams.push(`%${options.city}%`);
+    queryString += `WHERE city LIKE $${queryParams.length} `;
+  }
+
+  // if there is a price range
+  if (options.minimum_price_per_night && options.maximum_price_per_night) {
+    // if there are previous queries then start a new one, otherwise upped to it
+    if (queryParams.length === 0) {
+      queryString += `WHERE cost_per_night >= $${queryParams.length + 1} AND cost_per_night <= $${queryParams.length + 2} `;
+    } else {
+      queryString += `AND cost_per_night >= $${queryParams.length + 1} AND cost_per_night <= $${queryParams.length + 2} `;
+    }
+    queryParams.push(options.minimum_price_per_night * 100); 
+    queryParams.push(options.maximum_price_per_night * 100); 
+  }
+
+  // end of query
+  queryString += `GROUP BY properties.id`
+
+  if (options.minimum_rating) {
+    queryParams.push(options.minimum_rating);
+    queryString += `HAVING AVG(property_reviews.rating) >= $${queryParams.length + 1}`;
+  }
+  
+  queryParams.push(limit);
+  queryString +=
+  `
+  ORDER BY cost_per_night
+  LIMIT $${queryParams.length};
+  `;
+
+  // console log
+  console.log(queryString, queryParams);
+
+  // using pool to execute the query
   return pool
-    .query(`SELECT * FROM properties LIMIT $1`, [limit])
-    .then((result) => {
-      //console.log(result.rows);
-      return result.rows;
-    })
-    .catch((err) => {
-      console.log(err.message);
-    });
+  .query(queryString, queryParams)
+  .then((result) => {
+    return result.rows;
+  })
+  .catch((err) => {
+    console.error(err.message);
+  });
 };
 
 /**
